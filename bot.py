@@ -40,16 +40,20 @@ async def on_message(message):
         await message.channel.send(help_text)
 
     elif msg.startswith('!events'):
-        mode = "bengal"  # default
+        mode = "bengal"
 
         if msg == "!events all":
             mode = "all"
+            await message.channel.send(f"Fetching all upcoming events...")
         elif msg == "!events online":
             mode = "online"
+            await message.channel.send(f"Fetching all upcoming online events...")
         elif msg == "!events offline":
             mode = "offline"
-
-        await message.channel.send(f"Fetching events for: `{mode}`...")
+            await message.channel.send(f"Fetching all upcoming offline events...")
+        else:
+            mode = "bengal"
+            await message.channel.send(f"Fetching upcoming offline events in bengal...")
 
         events = get_events_V2(mode_filter=mode)
         if not events:
