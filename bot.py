@@ -6,10 +6,9 @@ import asyncio
 from datetime import datetime, timedelta
 import json
 from pytz import timezone
-
+from urllib.parse import quote_plus
 
 CONFIG_FILE = "config.json"
-
 
 def load_config():
     try:
@@ -18,21 +17,74 @@ def load_config():
     except Exception:
         return {}
 
-
 def save_config(config):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
-
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = discord.Client(intents=intents)
 
+# ✅ Function to generate Google Calendar link
+def create_gcal_link(title, start_date, url, location):
+    try:
+        # Try strict ISO format first
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
+        except ValueError:
+            # Try parsing looser formats (e.g., "Jun 20 - 22, 2025")
+            import re
+            match = re.search(r'([A-Za-z]+)\s+(\d{1,2})\s*-\s*(\d{1,2}),\s*(\d{4})', start_date)
+            if match:
+                month_str, day_start, day_end, year = match.groups()
+                full_date = f"{month_str} {day_start}, {year} 10:00"
+                start_dt = datetime.strptime(full_date, "%b %d, %Y %H:%M")
+            else:
+                # Fallback for simpler formats like "Jun 20, 2025"
+                try:
+                    start_dt = datetime.strptime(start_date, "%b %d, %Y")
+                except ValueError:
+                    print("Unrecognized date format:", start_date)
+                    return None
 
+        # Format for Google Calendar (RFC3339: YYYYMMDDTHHMMSSZ)
+        start_str = start_dt.strftime("%Y%m%dT%H%M%SZ")
+        end_dt = start_dt + timedelta(hours=2)
+        end_str = end_dt.strftime("%Y%m%dT%H%M%SZ")
+
+        link = (
+            "https://www.google.com/calendar/render?"
+            f"action=TEMPLATE&text={quote_plus(title)}"
+            f"&dates={start_str}/{end_str}"
+            f"&details={quote_plus('More info: ' + url)}"
+            f"&location={quote_plus(location)}"
+        )
+        return link
+    except Exception as e:
+        print("Error creating calendar link:", e)
+        return None
+    
+def get_msg_embed(event):
+    gcal_url = create_gcal_link(event['title'], event['start_date'], event['url'], event['location'])
+
+    embed = discord.Embed(
+        title=event['title'],
+        url=event['url'],
+        color=discord.Color.blue(),
+    )
+    embed.add_field(name="🌐 Mode", value=event['mode'], inline=False)
+    embed.add_field(name="➕ Add to Google Calendar", value=f"[Click Here]({gcal_url})", inline=False)
+    embed.add_field(name="📍 Location", value=event['location'], inline=False)
+    embed.add_field(name="🗓️ Date", value=event['start_date'], inline=False)
+    if event.get('banner'):
+        embed.set_image(url=event['banner'])
+
+    return embed
+
+# 🕒 Weekly update loop
 async def weekly_event_update():
     await client.wait_until_ready()
 
@@ -42,18 +94,16 @@ async def weekly_event_update():
         update_days_frequency = config.get("update_days_frequency", 7)
 
         if not channel_id:
-            print(
-                "No update channel set. Waiting until one is configured with !setchannel.")
-            await asyncio.sleep(60)  # Retry in 1 min
+            print("No update channel set. Waiting until one is configured with !setchannel.")
+            await asyncio.sleep(60)
             continue
 
         channel = client.get_channel(channel_id)
         if not channel:
             print("Invalid channel ID. Skipping.")
-            await asyncio.sleep(3600)  # Retry in 1 hour
+            await asyncio.sleep(3600)
             continue
 
-        # Fetch and send events
         try:
             await channel.send("Fetching upcoming events for this week...")
             events = get_events_V2()
@@ -62,27 +112,15 @@ async def weekly_event_update():
             else:
                 await channel.send("Here are the upcoming events this week:")
                 for event in events:
-                    embed = discord.Embed(
-                        title=event['title'],
-                        url=event['url'],
-                        color=discord.Color.blue(),
-                        description=f"🌐 **Mode:** {event['mode']}"
-                    )
-                    embed.add_field(name="📍 Location",
-                                    value=event['location'], inline=False)
-                    embed.add_field(
-                        name="🗓️ Date", value=event['start_date'], inline=False)
-                    if event.get('banner'):
-                        embed.set_image(url=event['banner'])
+                    embed = get_msg_embed(event)
                     await channel.send(embed=embed)
+
         except Exception as e:
             await channel.send("Error fetching weekly events.")
             print("Weekly fetch error:", e)
 
-        # Wait before the next update
-            # Schedule logic
+        # Schedule next run
         next_run_utc = datetime.utcnow() + timedelta(days=update_days_frequency)
-
         india_tz = timezone("Asia/Kolkata")
         next_run_ist = india_tz.normalize(india_tz.fromutc(next_run_utc))
         msg = f"Next update scheduled for {next_run_ist.strftime('%A, %d %B %Y at %I:%M %p')} IST"
@@ -90,12 +128,10 @@ async def weekly_event_update():
         await channel.send(msg)
         await asyncio.sleep(update_days_frequency * 24 * 60 * 60)
 
-
 @client.event
 async def on_ready():
     print(f'We have logged in as {client.user}')
     client.loop.create_task(weekly_event_update())
-
 
 @client.event
 async def on_message(message):
@@ -117,8 +153,8 @@ async def on_message(message):
             "`!events online` - Show only online events\n"
             "`!events offline` - Show only offline events\n"
             "`!help` - Show this help message\n"
-            "`!setupdatefrequency <days>` - Set the frequency of updates in days (default is 7)\n"
-            "`!seeupdatedetails` - See the details of the next scheduled update\n"
+            "`!setupdatefrequency <days>` - Set update frequency (default is 7)\n"
+            "`!seeupdatedetails` - See when the next update will be sent\n"
         )
         await message.channel.send(help_text)
 
@@ -181,19 +217,7 @@ async def on_message(message):
             await message.channel.send("No upcoming events found.")
         else:
             for event in events:
-                embed = discord.Embed(
-                    title=event['title'],
-                    url=event['url'],
-                    color=discord.Color.blue(),
-                    description=f"🌐 **Mode:** {event['mode']}"
-                )
-                embed.add_field(name="📍 Location",
-                                value=event['location'], inline=False)
-                embed.add_field(
-                    name="🗓️ Date", value=event['start_date'], inline=False)
-                if event.get('banner'):
-                    embed.set_image(url=event['banner'])
+                embed = get_msg_embed(event)
                 await message.channel.send(embed=embed)
-
 
 client.run(TOKEN)

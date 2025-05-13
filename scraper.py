@@ -117,8 +117,6 @@ def extract_events_from_cards(cards, mode_filter="bengal"):
                 "banner": banner_image
             })
 
-            print(f"Title: {title} Image: {banner_image}")
-
         except Exception as e:
             print("Skipping a card due to error:", e)
 
