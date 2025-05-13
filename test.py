@@ -1,6 +1,6 @@
-from scraper import extract_events_from_devfolio
+from scraper import get_events_V2
 
-events = extract_events_from_devfolio()
+events = get_events_V2()
 for event in events:
     print(f"{event['title']} - {event['url']}")
 

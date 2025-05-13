@@ -1,5 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+import time
 
 
 def get_geolocation_info(place):
@@ -29,21 +35,13 @@ def is_in_west_bengal(location_text):
     return "west bengal" in name.lower()
 
 
-def extract_events_from_devfolio():
-    url = "https://devfolio.co/hackathons"
+def extract_events_from_cards(cards, mode_filter="bengal"):
+    # mode_filter: "all", "online", "offline", "bengal"
     headers = {
         "User-Agent": "Mozilla/5.0"
     }
 
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print("Failed to fetch page.")
-        return []
-
-    soup = BeautifulSoup(response.text, "html.parser")
     events = []
-
-    cards = soup.select('div[class*="HackathonCard__StyledCard"]')
 
     for card in cards:
         try:
@@ -68,6 +66,7 @@ def extract_events_from_devfolio():
             links = card.find_all('a')
 
             event_url = None
+
             for link in links:
                 href = link.get('href')
                 if href and "devfolio.co" in href:
@@ -98,20 +97,89 @@ def extract_events_from_devfolio():
             if not date or not location or not mode or not title or not event_url:
                 continue
 
-            # if mode == "Offline" and not is_in_west_bengal(location):
-            if not is_in_west_bengal(location):
+            if mode_filter == "bengal" and not is_in_west_bengal(location):
                 continue
-            else:
-                print(f"Event {title} is in West Bengal: {location}")
+            if mode_filter == "online" and "online" not in mode.lower():
+                continue
+            if mode_filter == "offline" and "offline" not in mode.lower():
+                continue
+
+
+            og_image = eventUrlSoup.find("meta", property="og:image")
+            banner_image = og_image["content"] if og_image else None
 
             events.append({
                 "title": title,
                 "start_date": date,
                 "location": location,
                 "mode": mode,
-                "url": event_url
+                "url": event_url,
+                "banner": banner_image
             })
+
+            print(f"Title: {title} Image: {banner_image}")
+
         except Exception as e:
             print("Skipping a card due to error:", e)
+
+    return events
+
+
+def get_events(mode_filter="bengal"):
+    # mode_filter: "all", "online", "offline", "bengal"
+    url = "https://devfolio.co/hackathons"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print("Failed to fetch page.")
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    cards = soup.select('div[class*="HackathonCard__StyledCard"]')
+
+    events = extract_events_from_cards(cards, mode_filter)
+
+    return events
+
+
+def get_events_V2(mode_filter="bengal"):
+    # mode_filter: "all", "online", "offline", "bengal"
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    driver = webdriver.Chrome(options=options)
+
+    url = "https://devfolio.co/hackathons/open"
+    driver.get(url)
+
+    SCROLL_PAUSE_TIME = 5
+    last_height = driver.execute_script("return document.body.scrollHeight")
+
+    while True:
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(SCROLL_PAUSE_TIME)
+
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            # Wait a bit more to ensure final data loads
+            time.sleep(SCROLL_PAUSE_TIME)
+            new_height = driver.execute_script(
+                "return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+        last_height = new_height
+
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    driver.quit()
+
+    cards = soup.select('div[class*="HackathonCard__StyledCard"]')
+
+    events = extract_events_from_cards(cards, mode_filter)
 
     return events
