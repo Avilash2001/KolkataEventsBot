@@ -2,6 +2,27 @@ import discord
 import os
 from dotenv import load_dotenv
 from scraper import get_events_V2
+import asyncio
+from datetime import datetime, timedelta
+import json
+from pytz import timezone
+
+
+CONFIG_FILE = "config.json"
+
+
+def load_config():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_config(config):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -12,9 +33,68 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 
+async def weekly_event_update():
+    await client.wait_until_ready()
+
+    while not client.is_closed():
+        config = load_config()
+        channel_id = config.get("update_channel_id")
+        update_days_frequency = config.get("update_days_frequency", 7)
+
+        if not channel_id:
+            print(
+                "No update channel set. Waiting until one is configured with !setchannel.")
+            await asyncio.sleep(60)  # Retry in 1 min
+            continue
+
+        channel = client.get_channel(channel_id)
+        if not channel:
+            print("Invalid channel ID. Skipping.")
+            await asyncio.sleep(3600)  # Retry in 1 hour
+            continue
+
+        # Fetch and send events
+        try:
+            await channel.send("Fetching upcoming events for this week...")
+            events = get_events_V2()
+            if not events:
+                await channel.send("No upcoming events found this week.")
+            else:
+                await channel.send("Here are the upcoming events this week:")
+                for event in events:
+                    embed = discord.Embed(
+                        title=event['title'],
+                        url=event['url'],
+                        color=discord.Color.blue(),
+                        description=f"🌐 **Mode:** {event['mode']}"
+                    )
+                    embed.add_field(name="📍 Location",
+                                    value=event['location'], inline=False)
+                    embed.add_field(
+                        name="🗓️ Date", value=event['start_date'], inline=False)
+                    if event.get('banner'):
+                        embed.set_image(url=event['banner'])
+                    await channel.send(embed=embed)
+        except Exception as e:
+            await channel.send("Error fetching weekly events.")
+            print("Weekly fetch error:", e)
+
+        # Wait before the next update
+            # Schedule logic
+        next_run_utc = datetime.utcnow() + timedelta(days=update_days_frequency)
+
+        india_tz = timezone("Asia/Kolkata")
+        next_run_ist = india_tz.normalize(india_tz.fromutc(next_run_utc))
+        msg = f"Next update scheduled for {next_run_ist.strftime('%A, %d %B %Y at %I:%M %p')} IST"
+        print(msg)
+        await channel.send(msg)
+        await asyncio.sleep(update_days_frequency * 24 * 60 * 60)
+
+
 @client.event
 async def on_ready():
     print(f'We have logged in as {client.user}')
+    client.loop.create_task(weekly_event_update())
 
 
 @client.event
@@ -31,13 +111,54 @@ async def on_message(message):
         help_text = (
             "**Available Commands:**\n"
             "`!ping` - Check if the bot is alive\n"
+            "`!setchannel` - Set this channel to receive weekly event updates\n"
             "`!events` - Show upcoming offline events in Bengal\n"
             "`!events all` - Show all upcoming events\n"
             "`!events online` - Show only online events\n"
             "`!events offline` - Show only offline events\n"
-            "`!help` - Show this help message"
+            "`!help` - Show this help message\n"
+            "`!setupdatefrequency <days>` - Set the frequency of updates in days (default is 7)\n"
+            "`!seeupdatedetails` - See the details of the next scheduled update\n"
         )
         await message.channel.send(help_text)
+
+    elif msg == '!setchannel':
+        config = load_config()
+        config["update_channel_id"] = message.channel.id
+        save_config(config)
+        await message.channel.send(f"This channel has been set to receive weekly event updates.")
+
+    elif msg.startswith('!setupdatefrequency'):
+        try:
+            _, days = msg.split()
+            days = int(days)
+            if days <= 0:
+                raise ValueError("Days must be positive.")
+            config = load_config()
+            config["update_days_frequency"] = days
+            save_config(config)
+            await message.channel.send(f"Update frequency set to {days} days.")
+        except ValueError:
+            await message.channel.send("Please provide a valid number of days.")
+
+    elif msg == '!seeupdatedetails':
+        config = load_config()
+        channel_id = config.get("update_channel_id")
+        update_days_frequency = config.get("update_days_frequency", 7)
+
+        if not channel_id:
+            await message.channel.send("No update channel set. Use `!setchannel` to set this channel.")
+            return
+
+        channel = client.get_channel(channel_id)
+        if not channel:
+            await message.channel.send("Invalid channel ID. Please set a valid channel with `!setchannel`.")
+            return
+
+        next_run_utc = datetime.utcnow() + timedelta(days=update_days_frequency)
+        india_tz = timezone("Asia/Kolkata")
+        next_run_ist = india_tz.normalize(india_tz.fromutc(next_run_utc))
+        await message.channel.send(f"Next update scheduled for {next_run_ist.strftime('%A, %d %B %Y at %I:%M %p')} IST in {channel.mention}.")
 
     elif msg.startswith('!events'):
         mode = "bengal"
@@ -66,12 +187,13 @@ async def on_message(message):
                     color=discord.Color.blue(),
                     description=f"🌐 **Mode:** {event['mode']}"
                 )
-                embed.add_field(name="📍 Location", value=event['location'], inline=False)
-                embed.add_field(name="🗓️ Date", value=event['start_date'], inline=False)
+                embed.add_field(name="📍 Location",
+                                value=event['location'], inline=False)
+                embed.add_field(
+                    name="🗓️ Date", value=event['start_date'], inline=False)
                 if event.get('banner'):
                     embed.set_image(url=event['banner'])
                 await message.channel.send(embed=embed)
-
 
 
 client.run(TOKEN)
