@@ -28,14 +28,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# ✅ Function to generate Google Calendar link
 def create_gcal_link(title, start_date, url, location):
     try:
-        # Try strict ISO format first
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
         except ValueError:
-            # Try parsing looser formats (e.g., "Jun 20 - 22, 2025")
             import re
             match = re.search(r'([A-Za-z]+)\s+(\d{1,2})\s*-\s*(\d{1,2}),\s*(\d{4})', start_date)
             if match:
@@ -43,14 +40,12 @@ def create_gcal_link(title, start_date, url, location):
                 full_date = f"{month_str} {day_start}, {year} 10:00"
                 start_dt = datetime.strptime(full_date, "%b %d, %Y %H:%M")
             else:
-                # Fallback for simpler formats like "Jun 20, 2025"
                 try:
                     start_dt = datetime.strptime(start_date, "%b %d, %Y")
                 except ValueError:
                     print("Unrecognized date format:", start_date)
                     return None
 
-        # Format for Google Calendar (RFC3339: YYYYMMDDTHHMMSSZ)
         start_str = start_dt.strftime("%Y%m%dT%H%M%SZ")
         end_dt = start_dt + timedelta(hours=2)
         end_str = end_dt.strftime("%Y%m%dT%H%M%SZ")
@@ -84,7 +79,6 @@ def get_msg_embed(event):
 
     return embed
 
-# 🕒 Weekly update loop
 async def weekly_event_update():
     await client.wait_until_ready()
 
@@ -119,7 +113,6 @@ async def weekly_event_update():
             await channel.send("Error fetching weekly events.")
             print("Weekly fetch error:", e)
 
-        # Schedule next run
         next_run_utc = datetime.utcnow() + timedelta(days=update_days_frequency)
         india_tz = timezone("Asia/Kolkata")
         next_run_ist = india_tz.normalize(india_tz.fromutc(next_run_utc))

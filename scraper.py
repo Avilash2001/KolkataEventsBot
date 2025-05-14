@@ -74,7 +74,7 @@ def extract_events_from_cards(cards, mode_filter="bengal"):
                     break
             if not event_url:
                 continue
-            event_url = event_url.split("?")[0]  # Remove any query parameters
+            event_url = event_url.split("?")[0]
 
             eventUrlResponse = requests.get(event_url, headers=headers)
             if eventUrlResponse.status_code != 200:
