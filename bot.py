@@ -1,7 +1,7 @@
 import discord
 import os
 from dotenv import load_dotenv
-from scraper import get_events_V2
+from scraper import get_events
 import asyncio
 from datetime import datetime, timedelta
 import json
@@ -100,7 +100,7 @@ async def weekly_event_update():
 
         try:
             await channel.send("Fetching upcoming events for this week...")
-            events = get_events_V2()
+            events = get_events()
             if not events:
                 await channel.send("No upcoming events found this week.")
             else:
@@ -205,7 +205,7 @@ async def on_message(message):
             mode = "bengal"
             await message.channel.send(f"Fetching upcoming offline events in bengal...")
 
-        events = get_events_V2(mode_filter=mode)
+        events = get_events(mode_filter=mode)
         if not events:
             await message.channel.send("No upcoming events found.")
         else:
